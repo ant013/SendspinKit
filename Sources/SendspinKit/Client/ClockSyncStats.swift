@@ -54,7 +54,8 @@ public struct ClockSyncStats: Sendable, Hashable, Codable {
     public let offset: Int64
 
     /// Round-trip time of the most recent **accepted** sample in microseconds.
-    /// Only samples with RTT ≥ 0 and ≤ 100 ms are accepted.
+    /// The default policy accepts RTT ≥ 0 and ≤ 100 ms. The operator bench can
+    /// explicitly select a 1000 ms ceiling without reducing RTT-derived uncertainty.
     public let rtt: Int64
 
     /// Round-trip time of the most recent sample, including samples rejected

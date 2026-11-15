@@ -30,9 +30,11 @@ actor ClockSynchronizer: ClockSyncProtocol {
 
     // MARK: - Constants
 
-    /// Maximum acceptable round-trip time (100ms). Samples with RTT above this
-    /// are rejected as too noisy to improve the filter estimate.
-    private static let maxAcceptableRttMicroseconds: Int64 = 100_000
+    static let defaultMaximumRttMicroseconds: Int64 = 100_000
+    static let benchMaximumRttMicroseconds: Int64 = 1_000_000
+
+    private let maxAcceptableRttMicroseconds: Int64
+    private let benchDiagnosticsEnabled: Bool
 
     /// Minimum RTT used for measurement error calculation. Prevents zero-variance
     /// on localhost where RTT can be near-zero. From the Rust reference port.
@@ -67,7 +69,14 @@ actor ClockSynchronizer: ClockSyncProtocol {
     /// as close together as possible at process start — immune to NTP slew.
     private let clientProcessStartAbsolute: Int64
 
-    init() {
+    init(
+        allowHighRttForBench: Bool = ProcessInfo.processInfo.environment["SENDSPIN_BENCH_HIGH_RTT"] == "1",
+        benchDiagnosticsEnabled: Bool = ProcessInfo.processInfo.environment["SENDSPIN_BENCH_CLOCK_DIAGNOSTICS"] == "1"
+    ) {
+        maxAcceptableRttMicroseconds = allowHighRttForBench
+            ? Self.benchMaximumRttMicroseconds
+            : Self.defaultMaximumRttMicroseconds
+        self.benchDiagnosticsEnabled = benchDiagnosticsEnabled
         clientProcessStartAbsolute = MonotonicClock.epochAnchorMicroseconds
     }
 
@@ -130,8 +139,16 @@ actor ClockSynchronizer: ClockSyncProtocol {
         // Always record raw RTT for spike diagnostics
         latestRawRtt = rtt
 
+        // Initialized-only public stats cannot expose a rejected startup sample.
+        if benchDiagnosticsEnabled {
+            NSLog(
+                "SENDSPIN_BENCH_RAW_CLOCK rttUs=%lld limitUs=%lld rejected=%d",
+                rtt, maxAcceptableRttMicroseconds, rtt < 0 || rtt > maxAcceptableRttMicroseconds
+            )
+        }
+
         // Gate: reject samples with negative or excessive RTT
-        guard rtt >= 0, rtt <= Self.maxAcceptableRttMicroseconds else {
+        guard rtt >= 0, rtt <= maxAcceptableRttMicroseconds else {
             lastSampleWasRejected = true
             return
         }
